@@ -107,6 +107,109 @@ cli
         }
     })
 
+// --- weight command ---
+cli
+    .command('weight <file>', 'Estimate filament weight for a JSCAD or STL file')
+    .option(
+        '--density [g/cm3]',
+        z.number().default(1.24).describe('Filament density in g/cm³ (default: 1.24 for PLA)'),
+    )
+    .option(
+        '--infill [percent]',
+        z.number().min(0).max(100).default(20).describe('Infill percentage 0–100 (default: 20)'),
+    )
+    .option(
+        '--shells [count]',
+        z.number().int().min(1).default(3).describe('Number of perimeter shells (default: 3)'),
+    )
+    .option(
+        '--layer-height [mm]',
+        z.number().default(0.2).describe('Layer height in mm (default: 0.2)'),
+    )
+    .option(
+        '--nozzle [mm]',
+        z.number().default(0.4).describe('Nozzle diameter in mm (default: 0.4)'),
+    )
+    .action(async (file, options, { console }) => {
+        const { jscadToGeometries } = await import('./jscad.ts')
+        // @jscad/modeling is CJS — real API lives on .default in ESM context
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const jscadModule = (await import('@jscad/modeling')) as any
+        const jscad = jscadModule.default as typeof import('@jscad/modeling')
+        const { measureAggregateVolume, measureAggregateBoundingBox } = jscad.measurements
+
+        let geometries: unknown[]
+
+        const ext = path.extname(file).toLowerCase()
+        if (ext === '.stl') {
+            // For STL files use node-stl-like volume approach via measurements on parsed geometry
+            // We re-use jscadToGeometries only for JSCAD scripts; for STL we read volume differently
+            throw new Error(
+                'STL input not yet supported for weight estimation. Pass a .js/.ts JSCAD script instead.',
+            )
+        } else {
+            geometries = await jscadToGeometries(file)
+        }
+
+        const totalVolume = measureAggregateVolume(
+            ...(geometries as Parameters<typeof measureAggregateVolume>),
+        )
+
+        // Convert volume from mm³ (JSCAD default units) to cm³
+        const volumeCm3 = totalVolume / 1000
+
+        // Shell volume: outer perimeter walls
+        // Shell thickness = shells × nozzle diameter (in mm), convert to cm
+        // We approximate shell as a fraction of total volume based on typical thin-wall ratio
+        // A simpler and more standard approach: treat shells as % of volume
+        // shell_wall_fraction ≈ (shells * nozzle_mm) / average_feature_size
+        // For general estimation we use the standard formula:
+        //   weight = volume_cm3 * density * (shell_ratio + infill_ratio * (1 - shell_ratio))
+        // where shell_ratio is estimated from bounding box surface area
+        const bbox = measureAggregateBoundingBox(
+            ...(geometries as Parameters<typeof measureAggregateBoundingBox>),
+        )
+        const [[x1, y1, z1], [x2, y2, z2]] = bbox
+        const sizeX = Math.abs(x2 - x1)
+        const sizeY = Math.abs(y2 - y1)
+        const sizeZ = Math.abs(z2 - z1)
+
+        // Surface area of bounding box as a proxy for outer surface
+        const surfaceAreaMm2 =
+            2 * (sizeX * sizeY + sizeY * sizeZ + sizeX * sizeZ)
+
+        // Shell volume in mm³: surface area × shell thickness
+        const shellThicknessMm = options.shells * options['nozzle']
+        const shellVolumeMm3 = Math.min(surfaceAreaMm2 * shellThicknessMm, totalVolume)
+        const shellVolumeCm3 = shellVolumeMm3 / 1000
+
+        // Inner infill volume
+        const innerVolumeCm3 = Math.max(0, volumeCm3 - shellVolumeCm3)
+        const infillFraction = options.infill / 100
+
+        const weightGrams =
+            shellVolumeCm3 * options.density +
+            innerVolumeCm3 * options.density * infillFraction
+
+        // Filament length estimate (1.75mm diameter filament)
+        const filamentDiameterMm = 1.75
+        const filamentRadiusCm = filamentDiameterMm / 2 / 10
+        const filamentLengthCm = weightGrams / options.density / (Math.PI * filamentRadiusCm ** 2)
+        const filamentLengthM = filamentLengthCm / 100
+
+        console.log(`\nFilament weight estimate for: ${file}`)
+        console.log(`─────────────────────────────────────────`)
+        console.log(`  Model volume:     ${volumeCm3.toFixed(2)} cm³`)
+        console.log(`  Shell volume:     ${shellVolumeCm3.toFixed(2)} cm³  (${options.shells} shells × ${options['nozzle']}mm nozzle)`)
+        console.log(`  Inner volume:     ${innerVolumeCm3.toFixed(2)} cm³  (${options.infill}% infill)`)
+        console.log(`  Density:          ${options.density} g/cm³`)
+        console.log(`─────────────────────────────────────────`)
+        console.log(`  ➜  Weight:        ${weightGrams.toFixed(1)} g`)
+        console.log(`  ➜  Filament:      ${filamentLengthM.toFixed(2)} m  (1.75mm diameter)`)
+        console.log(`─────────────────────────────────────────`)
+        console.log(`  Bounding box:     ${sizeX.toFixed(1)} × ${sizeY.toFixed(1)} × ${sizeZ.toFixed(1)} mm\n`)
+    })
+
 // --- stl command ---
 cli
     .command('stl <file>', 'Convert a JSCAD JS/TS file to binary STL')

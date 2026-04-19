@@ -21,6 +21,15 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@22.19.17)(tsx@4.21.0)
 
+  examples:
+    dependencies:
+      '@jscad/modeling':
+        specifier: ^2.13.0
+        version: 2.13.0
+      rensei:
+        specifier: workspace:^
+        version: link:../rensei
+
   rensei:
     dependencies:
       '@jscad/modeling':
