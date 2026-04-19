@@ -13,6 +13,22 @@ rensei enables AI agents to generate 3D models via an iterative feedback loop:
 5. **Update** the `.ts` script to fix shape/dimension differences
 6. **Repeat** until model matches from all orthogonal views (front, back, left, right, top, bottom, iso)
 
+## Example: Water Filter Funnel (from reference photos)
+
+This model was built entirely by an AI agent using the iterative screenshot workflow above. Starting from 6 reference photos of a metal water filter part, the agent:
+
+1. Analyzed the photos to understand the part's function (funnel redirecting water from wide opening to narrow nozzle)
+2. Identified which features were functional vs manufacturing artifacts (concentric machining rings, decorative grooves — all stripped)
+3. Built a simplified thin-walled conical funnel using `extrudeRotate` with a 2D profile polygon
+4. Iterated through ~5 revisions comparing renders to photos from matching angles
+5. Optimized for 3D printing: minimal wall thickness, no supports needed, correct orientation for pressure resistance
+
+**Input**: 6 photos of a metal part → **Output**: print-ready STL
+
+![Water filter funnel — top, iso, front, nozzle, bottom views](docs/water-filter-strip.png)
+
+Source: [`examples/src/water-filter.ts`](examples/src/water-filter.ts)
+
 ## CLI Commands
 
 ```bash
@@ -1431,6 +1447,29 @@ const wallThickness = outerR - innerR  // 1.2mm ✓
 console.log(`Wall thickness: ${wallThickness}mm`)
 ```
 
+**Don't over-thickness.** Thicker isn't always better — it wastes material and print time:
+
+| Purpose | Recommended wall |
+|---|---|
+| Non-structural shells (funnels, shrouds) | 1.5–2mm |
+| General structural walls | 2–3mm |
+| Walls for thread engraving/tapping | 2.5–3mm |
+| Heavy-duty load-bearing | 3–4mm |
+
+```typescript
+// BAD: 6mm wall "just in case" — wastes 3x the material
+const overbuilt = subtract(
+  cylinder({ height: 20, radius: 25 }),
+  cylinder({ height: 22, radius: 19 })  // 6mm wall
+)
+
+// GOOD: 2mm wall — sufficient for a water funnel
+const efficient = subtract(
+  cylinder({ height: 20, radius: 25 }),
+  cylinder({ height: 22, radius: 23 })  // 2mm wall
+)
+```
+
 For hollow boxes, remember thickness applies to **every side**:
 
 ```typescript
@@ -1541,6 +1580,42 @@ const cap = cylinder({ height: 5, radius: 8, center: [0, 0, 27.5] })
 const good = union(post, taper, cap)
 ```
 
+### Conical Overhangs Are More Forgiving
+
+The 45° rule applies primarily to flat/rectangular overhangs. **Circular and conical surfaces** can handle steeper angles because each layer is a complete circle slightly wider than the previous — the printer lays down a full ring with only a tiny unsupported extension per layer.
+
+```
+Flat overhang at 60°:     Conical overhang at 60°:
+     ┌────────┐                 /‾‾‾\
+     │  FAIL  │                / OK  \
+─────┘        └─────      ────/       \────
+
+Each layer jumps            Each layer is a full
+a large unsupported         circle, only ~0.5mm
+distance at once            wider than the previous
+```
+
+Rules of thumb:
+- **Flat overhangs**: max ~45° from vertical (the standard rule)
+- **Conical/circular overhangs**: up to ~65–70° from vertical works fine
+- A funnel cone printing narrow-end-down is self-supporting even at steep angles
+- Each layer extends only `(radius_change / height) × layer_height` beyond the previous
+
+```typescript
+// This funnel has a 66° overhang from vertical — too steep for a flat shelf,
+// but prints fine as a cone because each circular layer only extends 0.45mm
+// beyond the previous (at 0.2mm layer height)
+const funnel = extrudeRotate({ segments: 64 }, polygon({ points: [
+  [6, 0],     // narrow end (on build plate)
+  [9, 12],    // base of cone
+  [30, 20],   // wide end — 24mm radius increase over 8mm height
+  [28, 20],   // inner wall
+  [7, 12],    // inner slope
+  [4.5, 12],  // through-hole
+  [4.5, 0],   // hole bottom
+]}))
+```
+
 ### Bridging
 
 Horizontal spans between two supports (bridges) work up to ~10mm on FDM without supports. Beyond that, add design features:
@@ -1633,6 +1708,7 @@ Layer lines →  ════════  Strong in X/Y (within layer)
 Design rules:
 - **Load-bearing features** should have layers perpendicular to the load
 - **Snap-fit hooks** should flex along X/Y, not peel apart layers in Z
+- **Cylindrical parts under pressure** (pipes, funnels, nozzles): print with axis vertical so hoop stress (radial expansion) stays within the XY layer plane (strong direction). Printing sideways puts hoop stress across layers → delamination under pressure
 - **Horizontal round holes** deform into ovals — use **teardrop** shapes for accuracy:
 
 ```typescript
@@ -1759,18 +1835,76 @@ const smallHole = cylinder({ height: 10, radius: 1.5, segments: 16 })
 const smoothDome = sphere({ radius: 20, segments: 64 })
 ```
 
+### Simplify for Printing — Strip Non-Functional Features
+
+When reverse-engineering a physical part (especially machined metal), most visible features are **manufacturing artifacts**, not functional requirements. Concentric stepped rings, decorative grooves, scalloped surfaces — these exist because of how metal lathes and CNC mills work, not because the part needs them.
+
+**Always ask: "What does this part actually DO?"** Then model only the function.
+
+```typescript
+// BAD: faithfully replicating every machining ring from the metal original
+// Result: 5x the polygons, 3x the material, zero functional benefit
+const overEngineered = extrudeRotate({ segments: 64 }, polygon({ points: [
+  // ... 40 points tracing every decorative step and groove
+]}))
+
+// GOOD: simplified to the actual function (funnel from wide to narrow)
+const functional = extrudeRotate({ segments: 64 }, polygon({ points: [
+  [9, 0],     // nozzle tip
+  [12, 12],   // nozzle base
+  [30, 20],   // funnel outer
+  [30, 28],   // mounting cylinder
+  [28, 28],   // cylinder inner
+  [28, 20],   // funnel inner
+  [7, 12],    // nozzle inner
+  [7, 0],     // through-hole
+]}))
+```
+
+Key principles:
+- **Thin-walled shells** instead of solid bodies — massive weight/material savings
+- **Smooth cones** instead of stepped rings — fewer polygons, better print quality
+- **Skip decorative grooves** — they don't improve function and may weaken the print
+- **Uniform wall thickness** — simpler to print, easier to reason about strength
+
+### Internal Features Must Print Bottom-Up
+
+Even if your model is geometrically one solid piece, the slicer builds it layer-by-layer from Z=0 upward. Any feature inside a cavity that starts mid-air will be flagged as a "floating cantilever."
+
+```
+WRONG — filter stub hangs from ceiling:     RIGHT — filter stub builds from floor:
+
+  ┌──────────────┐  bed                      nozzle tip (top)
+  │   ┌──┐       │  ← stub starts here,        │  │
+  │   │  │       │     nothing below it       ┌─┘  └─┐  ← stub builds upward
+  │   └──┘       │                            │      │     from solid floor ✅
+  │       funnel │                         ───┘      └───
+  └──────┬───────┘                         ═══════════════  bed
+         │ nozzle
+```
+
+Rules:
+- At every Z layer, every feature must have solid material or bridgeable gap below it
+- When choosing print orientation, trace the build path of **every internal feature** bottom-up
+- If an internal boss or tube would start mid-air, flip the model or redesign the connection
+- A feature connected to the ceiling but not the floor is structurally sound but **unprintable without supports**
+
 ### Pre-Export Checklist
 
 | Check | How to verify | Fix |
 |---|---|---|
 | Wall thickness ≥ 0.8mm | Compute outer - inner dimensions | Increase inner offset |
+| Walls not too thick | Check no wall exceeds 4mm without reason | Reduce to 2–3mm for most features |
 | Flat bottom at Z=0 | `measureBoundingBox()[0][2] === 0` | `align({ modes: ['center','center','min'] })` |
 | No floating parts | Ensure all parts are `union()`'d | `union(partA, partB, ...)` |
+| No internal cantilevers | Every internal feature builds from floor up | Flip orientation or redesign |
 | Volume > 0 | `measureVolume(model) > 0` | Check boolean order, normals |
 | Fits print bed | `measureDimensions()` < bed size | `scale()` down |
 | Reasonable file size | `segments` not excessive | Use 32 default, 16 for small features |
 | Clean mesh | Apply `generalize()` before export | `generalize({ snap: true, triangulate: true })` |
 | Oriented for strength | Load perpendicular to layer lines | Rotate model or redesign |
+| Pressure parts vertical | Hoop stress within XY plane | Print cylindrical axis along Z |
+| Only functional features | No decorative machining artifacts | Simplify to thin-walled shells |
 
 ---
 

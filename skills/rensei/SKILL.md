@@ -35,5 +35,5 @@ rensei --help # NEVER pipe to head/tail, read the full output
 Every time you work with rensei, you MUST fetch the latest README:
 
 ```bash
-curl -s https://raw.githubusercontent.com/remorses/rensei/main/rensei/README.md # NEVER pipe to head/tail
+curl -s https://raw.githubusercontent.com/remorses/rensei/main/README.md # NEVER pipe to head/tail
 ```
