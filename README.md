@@ -1,6 +1,11 @@
-# rensei
-
-3D model rendering and JSCAD evaluation toolkit for AI agents.
+<div align='center'>
+    <br/>
+    <br/>
+    <h3>rensei</h3>
+    <p>CLI to let agents write code to generate 3d models to print. Turns code into STL models, screenshot, compare, repeat.</p>
+    <br/>
+    <br/>
+</div>
 
 ## Agent Skill
 
