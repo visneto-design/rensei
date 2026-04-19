@@ -2,7 +2,7 @@
     <br/>
     <br/>
     <h3>rensei</h3>
-    <p>CLI to let agents write code to generate 3d models to print. Turns code into STL models, screenshot, compare, repeat.</p>
+    <p>CLI to generate 3d models from code & screenshot them. Code, screenshot, compare, repeat.</p>
     <br/>
     <br/>
 </div>
