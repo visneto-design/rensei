@@ -40,10 +40,11 @@ export function main() {
     const wall = 2
 
     // Nozzle (narrow end — points UP when printing)
-    const nozzleTipRadius = 9
-    const nozzleBaseRadius = 16  // must be ≥ filterOuterRadius + wall = 13.5 → use 16
+    // Slightly larger and smoother to reduce flow restriction.
+    const nozzleTipRadius = 11
+    const nozzleBaseRadius = 18
     const nozzleLength = 12
-    const holeRadius = 7
+    const holeRadius = 8.5
 
     // Mounting cylinder: 56mm inner ⌀, thin wall (sits flat on bed)
     const cylinderInnerRadius = 28
@@ -51,17 +52,18 @@ export function main() {
     const cylinderOuterRadius = cylinderInnerRadius + cylinderWall // 30mm
     const cylinderHeight = 8
 
-    // Filter attachment cylinder: 23mm outer ⌀, routes from BED to funnel floor
-    // This grounds it — no floating, no cantilever
-    const filterOuterRadius = 11.5  // 23mm / 2
-    const filterInnerRadius = filterOuterRadius - wall  // 9.5mm
+    // Filter attachment cylinder: 24mm INNER ⌀, 2mm wall
+    // Only a short lip should be visible inside the bowl.
+    const filterInnerRadius = 12  // 24mm / 2
+    const filterOuterRadius = filterInnerRadius + wall  // 14mm outer radius
 
     // Heights (Y=0 = bed, Y increases toward nozzle tip)
     const bedY = 0
     const funnelTop = cylinderHeight               // Y=8: funnel-cylinder junction
     const funnelBottom = funnelTop + 8             // Y=16: funnel narrow end / nozzle base
     const nozzleTop = funnelBottom + nozzleLength  // Y=28: nozzle tip
-    const funnelInnerBottom = nozzleBaseRadius - wall  // 14mm: funnel inner at funnelBottom
+    const funnelInnerBottom = nozzleBaseRadius - wall
+    const filterTop = funnelBottom + 2             // only 2mm visible above bowl floor
 
     // Profile polygon — traced counterclockwise, NO self-intersections.
     // Outer and inner funnel slopes are PARALLEL (same direction vector),
@@ -77,21 +79,18 @@ export function main() {
     // === NOZZLE TIP (top flat ring) ===
     pts.push([holeRadius, nozzleTop])
 
-    // === INNER SURFACE (nozzle tip → funnel floor) ===
-    pts.push([holeRadius, funnelBottom])        // hole down to funnel floor
+    // === INNER SURFACE (nozzle tip → filter lip) ===
+    // Smooth tapered throat instead of a flat obstructing floor.
+    pts.push([holeRadius, funnelBottom])
+    pts.push([filterInnerRadius, filterTop])
 
-    // === FUNNEL FLOOR → FILTER (going right/outward at Y=funnelBottom) ===
-    // Floor from hole to filter inner top — X range: 7 to 9.5 (no overlap with
-    // the other floor segment 11.5→14 which is separate)
-    pts.push([filterInnerRadius, funnelBottom]) // floor: hole → filter inner top
-
-    // === FILTER — routes DOWN to bed, then back UP (grounded, no float) ===
+    // === FILTER — grounded to bed, but only a short lip is visible ===
     pts.push([filterInnerRadius, bedY])         // filter inner wall down to bed
     pts.push([filterOuterRadius, bedY])         // bed floor: filter inner → outer
-    pts.push([filterOuterRadius, funnelBottom]) // filter outer wall up to funnel floor
+    pts.push([filterOuterRadius, filterTop])    // filter outer wall up to short lip
 
-    // === FUNNEL FLOOR → FUNNEL INNER (X range: 11.5 to 14, no overlap above) ===
-    pts.push([funnelInnerBottom, funnelBottom]) // floor: filter outer → funnel inner
+    // Smooth outer shoulder from lip back into funnel cone.
+    pts.push([funnelInnerBottom, funnelBottom])
 
     // === FUNNEL INNER → CYLINDER INNER (parallel to outer, no crossing) ===
     pts.push([cylinderInnerRadius, funnelTop])  // funnel inner up to cylinder
