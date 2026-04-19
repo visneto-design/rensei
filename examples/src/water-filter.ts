@@ -68,11 +68,11 @@ export function main() {
 
     const body = extrudeRotate({ segments: 64 }, polygon({ points: pts }))
 
-    // Flip: cylinder down for printing, nozzle up
-    const flipped = mirrorZ(body)
-
+    // Print nozzle-down: the funnel cone overhang is gradual (conical)
+    // and FDM handles it fine. The filter cylinder builds naturally
+    // upward from the funnel floor — no cantilever.
     return align(
         { modes: ['center', 'center', 'min'], relativeTo: [0, 0, 0] },
-        flipped,
+        body,
     )
 }
