@@ -2,7 +2,7 @@
     <br/>
     <br/>
     <h3>rensei</h3>
-    <p>CLI to generate 3d models from code & screenshot them. Code, screenshot, compare, repeat.</p>
+    <p>CLI to let agentes generate 3d models from code & screenshot them. Then 3d print</p>
     <br/>
     <br/>
 </div>
